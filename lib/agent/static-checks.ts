@@ -53,6 +53,14 @@ export function runStaticChecks(changes: FileChange[]): TestCheck[] {
         return false;
       }
     });
+  const uniquePaths =
+    new Set(changes.map((change) => change.path)).size === changes.length;
+  const hasMaterialChange = changes.some(
+    (change) =>
+      change.status === "deleted" ||
+      change.additions > 0 ||
+      change.deletions > 0,
+  );
 
   const result = (
     name: string,
@@ -66,6 +74,8 @@ export function runStaticChecks(changes: FileChange[]): TestCheck[] {
 
   return [
     result("Generated files", changes.length > 0 && changes.length <= 10, 12),
+    result("Unique file paths", uniquePaths, 18),
+    result("Material change", hasMaterialChange, 20),
     result("Path safety", pathsSafe, 23),
     result("Secret scan", !SECRET_PATTERN.test(allContent), 41),
     result(

@@ -3,7 +3,7 @@
 **An observable, human-controlled agent workflow that turns a GitHub issue
 into a reviewed patch.**
 
-[Live demo](https://your-project.vercel.app) ·
+[Live demo](https://patchpilot-ten.vercel.app) ·
 [Architecture](#architecture) ·
 [Run locally](#quick-start) ·
 [Evaluation](#evaluation)
@@ -17,8 +17,10 @@ them, repairs a failed attempt, performs a security-minded review, and stops at
 a human approval boundary.
 
 The included demo is deterministic and works without an API key. Gemini mode
-can read a public or authorized GitHub repository and use Google Gemini for all
-model-backed agent steps.
+reads a public or authorized GitHub repository, then uses one bounded,
+structured Gemini request to produce the implementation plan and complete file
+replacements. Deterministic nodes handle triage, verification, review policy,
+and the human approval boundary.
 
 ## Why this project exists
 
@@ -44,7 +46,8 @@ Paste `owner/repository`, add the issue title and acceptance context, then
 choose:
 
 - **Demo** — deterministic fixture, no keys or external writes.
-- **Gemini** — bounded GitHub context retrieval plus Gemini-backed agents.
+- **Gemini** — bounded GitHub context retrieval plus one timeout-controlled
+  Gemini implementation request.
 
 ### 2. Watch the state graph
 
@@ -79,20 +82,18 @@ flowchart LR
 
     GRAPH --> T[Triage]
     T --> R[Repository mapper]
-    R --> P[Planner]
-    P --> C[Coder]
+    R --> P[Planner + Gemini implementation]
+    P --> C[Coder artifact]
     C --> V[Verifier]
-    V -->|failed + budget| F[Repair]
+    V -->|demo failure + budget| F[Repair fixture]
     F --> V
+    V -->|live failure| X[Stop safely]
     V -->|passed| Q[Reviewer]
     Q --> H[Human approval]
 
     R --> GH[(GitHub API)]
-    T --> LLM[(Google Gemini via AI SDK)]
     P --> LLM
-    C --> LLM
-    F --> LLM
-    Q --> LLM
+    LLM[(Google Gemini via AI SDK)] --> P
     H -->|explicitly enabled| PR[Draft pull request]
 ```
 
@@ -129,7 +130,8 @@ flowchart LR
    separators.
 4. Preflight checks include secret patterns, JSON parsing, delimiter balance,
    patch size, and path safety.
-5. A repair budget prevents unbounded loops.
+5. Live inference has a 42-second server timeout, no hidden retries, and a
+   55-second browser watchdog; failures stop before any repository write.
 6. GitHub writes require an explicit human action.
 7. Server writes additionally require
    `PATCHPILOT_ENABLE_WRITES=true`.
@@ -147,8 +149,8 @@ See [SECURITY.md](SECURITY.md) for operational guidance.
 ### Install and run
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/patchpilot.git
-cd patchpilot
+git clone https://github.com/sagarbagwe/patchpilot-.git
+cd patchpilot-
 npm install
 cp .env.example .env.local
 npm run dev
@@ -280,7 +282,8 @@ tests/                    security and parser unit tests
 ## Resume-ready talking points
 
 - Built a stateful eight-node agent workflow with conditional repair routing,
-  typed Zod contracts, bounded retries, and human-in-the-loop approval.
+  typed Zod contracts, timeout-controlled inference, and human-in-the-loop
+  approval.
 - Developed a responsive Next.js dashboard that streams execution events and
   visualizes code diffs, review findings, test results, cost, and latency.
 - Integrated GitHub repository analysis and guarded draft pull-request

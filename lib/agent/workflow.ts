@@ -71,55 +71,38 @@ const WorkflowState = Annotation.Root({
 
 type GraphState = typeof WorkflowState.State;
 
-const triageSchema = z.object({
-  category: z.string().min(2).max(40),
-  risk: z.enum(["low", "medium", "high"]),
-  acceptanceCriteria: z.array(z.string().min(8).max(180)).min(2).max(6),
-});
+const planStepsSchema = z
+  .array(
+    z.object({
+      id: z.number().int().positive(),
+      title: z.string().min(3).max(90),
+      description: z.string().min(8).max(240),
+      files: z.array(z.string()).max(5),
+    }),
+  )
+  .min(1)
+  .max(5);
 
-const planSchema = z.object({
-  steps: z
-    .array(
-      z.object({
-        id: z.number().int().positive(),
-        title: z.string().min(3).max(90),
-        description: z.string().min(8).max(240),
-        files: z.array(z.string()).max(5),
-      }),
-    )
-    .min(2)
-    .max(6),
-});
+const generatedChangesSchema = z
+  .array(
+    z.object({
+      path: z.string().min(1).max(220),
+      status: z.enum(["added", "modified", "deleted"]),
+      content: z.string().max(80_000),
+    }),
+  )
+  .min(1)
+  .max(5);
 
-const changesSchema = z.object({
+const liveImplementationSchema = z.object({
+  steps: planStepsSchema,
   changes: z
-    .array(
-      z.object({
-        path: z.string().min(1).max(220),
-        status: z.enum(["added", "modified", "deleted"]),
-        additions: z.number().int().nonnegative(),
-        deletions: z.number().int().nonnegative(),
-        content: z.string().max(80_000),
-        patch: z.string().max(40_000),
-      }),
-    )
+    .array(generatedChangesSchema.element)
     .min(1)
     .max(5),
 });
 
-const reviewSchema = z.object({
-  findings: z
-    .array(
-      z.object({
-        severity: z.enum(["info", "warning", "critical"]),
-        title: z.string().min(3).max(100),
-        detail: z.string().min(8).max(280),
-        file: z.string().optional(),
-        line: z.number().int().positive().optional(),
-      }),
-    )
-    .max(8),
-});
+const GEMINI_TIMEOUT_MS = 42_000;
 
 function model() {
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
@@ -146,16 +129,186 @@ function repoContext(files: RepoFile[]): string {
   return files
     .map(
       (file) =>
-        `\n--- ${file.path} ---\n${file.content.slice(0, 8_000)}`,
+        `\n--- ${file.path} ---\n${file.content.slice(0, 6_000)}`,
     )
     .join("\n")
-    .slice(0, 48_000);
+    .slice(0, 32_000);
 }
 
 function issueContext(state: GraphState): string {
   return `Repository: ${state.request.repository}
 Issue: ${state.request.issueTitle}
 Description: ${state.request.issueBody}`;
+}
+
+function triageFromIssue(request: RunRequest): TriageResult {
+  const issue = `${request.issueTitle} ${request.issueBody}`.toLowerCase();
+  const category = /security|auth|permission|secret|vulnerab/.test(issue)
+    ? "Security"
+    : /bug|fix|error|crash|incorrect|broken/.test(issue)
+      ? "Bug Fix"
+      : /test|coverage|spec/.test(issue)
+        ? "Testing"
+        : /docs|readme|documentation/.test(issue)
+          ? "Documentation"
+          : /add|create|implement|feature|option|support/.test(issue)
+            ? "Feature"
+            : "Code Quality";
+  const risk: TriageResult["risk"] =
+    /security|auth|permission|payment|migration|schema|delete|credential/.test(
+      issue,
+    )
+      ? "high"
+      : /api|database|storage|concurr|webhook|production/.test(issue)
+        ? "medium"
+        : "low";
+
+  return {
+    category,
+    risk,
+    acceptanceCriteria: [
+      `The requested behavior is implemented: ${request.issueTitle}`.slice(
+        0,
+        180,
+      ),
+      "The change is scoped to relevant files and passes the configured safety checks.",
+    ],
+  };
+}
+
+function diffForChange(
+  path: string,
+  previousContent: string,
+  nextContent: string,
+): { patch: string; additions: number; deletions: number } {
+  const previous = previousContent ? previousContent.split("\n") : [];
+  const next = nextContent ? nextContent.split("\n") : [];
+  let prefix = 0;
+  while (
+    prefix < previous.length &&
+    prefix < next.length &&
+    previous[prefix] === next[prefix]
+  ) {
+    prefix += 1;
+  }
+
+  let suffix = 0;
+  while (
+    suffix < previous.length - prefix &&
+    suffix < next.length - prefix &&
+    previous[previous.length - 1 - suffix] ===
+      next[next.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  const previousChanged = previous.slice(
+    prefix,
+    previous.length - suffix,
+  );
+  const nextChanged = next.slice(prefix, next.length - suffix);
+  const before = previous.slice(Math.max(0, prefix - 3), prefix);
+  const after = previous.slice(
+    previous.length - suffix,
+    Math.min(previous.length, previous.length - suffix + 3),
+  );
+  const oldStart = Math.max(0, prefix - 3) + 1;
+  const newStart = oldStart;
+  const oldCount = before.length + previousChanged.length + after.length;
+  const newCount = before.length + nextChanged.length + after.length;
+  const patch = [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
+    ...before.map((line) => ` ${line}`),
+    ...previousChanged.map((line) => `-${line}`),
+    ...nextChanged.map((line) => `+${line}`),
+    ...after.map((line) => ` ${line}`),
+  ].join("\n");
+
+  return {
+    patch,
+    additions: nextChanged.length,
+    deletions: previousChanged.length,
+  };
+}
+
+function materializeChanges(
+  generated: z.infer<typeof generatedChangesSchema>,
+  files: RepoFile[],
+): FileChange[] {
+  return generated.map((change) => {
+    const existing = files.find((file) => file.path === change.path);
+    if (change.status !== "added" && !existing) {
+      throw new Error(
+        `Gemini referenced "${change.path}", but that file was not loaded from the repository. Try a more specific issue description.`,
+      );
+    }
+    const content = change.status === "deleted" ? "" : change.content;
+    const diff = diffForChange(change.path, existing?.content ?? "", content);
+    return {
+      path: change.path,
+      status: change.status,
+      content,
+      ...diff,
+    };
+  });
+}
+
+function reviewGeneratedPatch(state: GraphState): ReviewFinding[] {
+  const failedChecks = state.checks.filter(
+    (check) => check.status === "failed",
+  );
+  if (failedChecks.length > 0) {
+    return failedChecks.map((check) => ({
+      severity: "critical",
+      title: `${check.name} failed`,
+      detail:
+        "The generated patch did not pass deterministic verification and must not be approved.",
+    }));
+  }
+
+  const findings: ReviewFinding[] = [];
+  if (state.changes.length > 3) {
+    findings.push({
+      severity: "warning",
+      title: "Broad change scope",
+      detail:
+        "The patch touches more than three files. Review each replacement carefully before approval.",
+    });
+  }
+  findings.push({
+    severity: "info",
+    title: "Automated safety review passed",
+    detail:
+      "Paths, secrets, delimiters, JSON content, and patch size passed deterministic checks. Human review is still required.",
+  });
+  return findings;
+}
+
+function geminiError(error: unknown): Error {
+  const message =
+    error instanceof Error ? error.message : "Unknown Gemini error.";
+  if (
+    (error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError")) ||
+    /abort|timed? ?out|timeout/i.test(message)
+  ) {
+    return new Error(
+      "Gemini did not finish within 42 seconds, so PatchPilot stopped the run safely. Retry once or confirm GEMINI_MODEL=gemini-2.5-flash in Vercel.",
+    );
+  }
+  if (/429|quota|rate.?limit|resource_exhausted/i.test(message)) {
+    return new Error(
+      "Gemini free-tier quota or rate limit was reached. Wait about one minute, then retry.",
+    );
+  }
+  if (/404|model.*not found|not supported/i.test(message)) {
+    return new Error(
+      "The configured Gemini model is unavailable. Set GEMINI_MODEL=gemini-2.5-flash in Vercel and redeploy.",
+    );
+  }
+  return new Error(`Gemini could not generate the patch: ${message}`);
 }
 
 async function triageNode(
@@ -179,18 +332,10 @@ async function triageNode(
     };
   }
 
-  const generated = await generateObject({
-    model: model(),
-    schema: triageSchema,
-    system:
-      "You are a senior engineering triage agent. Produce testable acceptance criteria. Do not propose implementation yet.",
-    prompt: issueContext(state),
-    temperature: 0.1,
-  });
-  const triage = generated.object;
+  const triage = triageFromIssue(state.request);
   return {
     triage,
-    tokens: usageTotal(generated.usage),
+    tokens: 0,
     lastEvent: {
       nodeId: "triage",
       status: "completed",
@@ -273,31 +418,47 @@ async function plannerNode(
     };
   }
 
-  const generated = await generateObject({
-    model: model(),
-    schema: planSchema,
-    system:
-      "You are a staff software engineer. Make the smallest safe implementation plan grounded only in the supplied files. Include validation and tests.",
-    prompt: `${issueContext(state)}
+  try {
+    const generated = await generateObject({
+      model: model(),
+      schema: liveImplementationSchema,
+      system: `You are PatchPilot's implementation agent.
+Create the smallest safe patch grounded only in the supplied repository files.
+Return an ordered plan and complete replacement content for each changed file.
+For modified or deleted files, use an exact supplied path. Use "added" only for a genuinely new file.
+Do not edit lockfiles, generated files, CI secrets, or dependency manifests unless the issue explicitly requires it.
+Do not include credentials. Touch at most five files.`,
+      prompt: `${issueContext(state)}
 Acceptance criteria:
 ${state.triage?.acceptanceCriteria.map((item) => `- ${item}`).join("\n")}
 
 Repository context:
 ${repoContext(state.repoFiles)}`,
-    temperature: 0.1,
-  });
-  return {
-    plan: generated.object.steps,
-    tokens: usageTotal(generated.usage),
-    lastEvent: {
-      nodeId: "planner",
-      status: "completed",
-      title: "Implementation planned",
-      message: `${generated.object.steps.length} ordered changes with file-level scope`,
-      durationMs: Date.now() - started,
-      payload: { plan: generated.object.steps },
-    },
-  };
+      temperature: 0.1,
+      maxOutputTokens: 6500,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+    });
+    const changes = materializeChanges(
+      generated.object.changes,
+      state.repoFiles,
+    );
+    return {
+      plan: generated.object.steps,
+      changes,
+      tokens: usageTotal(generated.usage),
+      lastEvent: {
+        nodeId: "planner",
+        status: "completed",
+        title: "Implementation planned",
+        message: `${generated.object.steps.length} ordered changes with file-level scope`,
+        durationMs: Date.now() - started,
+        payload: { plan: generated.object.steps },
+      },
+    };
+  } catch (error) {
+    throw geminiError(error);
+  }
 }
 
 async function coderNode(
@@ -321,34 +482,15 @@ async function coderNode(
     };
   }
 
-  const generated = await generateObject({
-    model: model(),
-    schema: changesSchema,
-    system: `You are a careful coding agent.
-Return complete replacement content for every added or modified file and a unified diff hunk in patch.
-Keep changes minimal. Never edit lockfiles, CI secrets, generated files, or dependency manifests unless the issue explicitly requires it.
-Never include credentials. Maximum five files.`,
-    prompt: `${issueContext(state)}
-
-Plan:
-${state.plan
-  .map(
-    (step) =>
-      `${step.id}. ${step.title}: ${step.description} [${step.files.join(", ")}]`,
-  )
-  .join("\n")}
-
-Repository context:
-${repoContext(state.repoFiles)}`,
-    temperature: 0.1,
-    maxOutputTokens: 7000,
-  });
-  const changes = generated.object.changes;
+  const changes = state.changes;
+  if (changes.length === 0) {
+    throw new Error("Gemini completed without producing any file changes.");
+  }
   const additions = changes.reduce((total, file) => total + file.additions, 0);
   const deletions = changes.reduce((total, file) => total + file.deletions, 0);
   return {
     changes,
-    tokens: usageTotal(generated.usage),
+    tokens: 0,
     lastEvent: {
       nodeId: "coder",
       status: "completed",
@@ -410,39 +552,13 @@ async function repairNode(
     };
   }
 
-  const generated = await generateObject({
-    model: model(),
-    schema: changesSchema,
-    system:
-      "You are a repair agent. Fix only the reported verification failures. Preserve correct behavior and return complete file contents.",
-    prompt: `${issueContext(state)}
-Failed checks:
-${state.checks
-  .filter((check) => check.status === "failed")
-  .map((check) => `- ${check.name}`)
-  .join("\n")}
-
-Current changes:
-${state.changes
-  .map((change) => `--- ${change.path} ---\n${change.content}`)
-  .join("\n")
-  .slice(0, 48_000)}`,
-    temperature: 0,
-    maxOutputTokens: 7000,
-  });
-  return {
-    changes: generated.object.changes,
-    repairLoops: state.repairLoops + 1,
-    tokens: usageTotal(generated.usage),
-    lastEvent: {
-      nodeId: "repair",
-      status: "completed",
-      title: "Patch repaired",
-      message: "Regenerated the affected files from structured check failures",
-      durationMs: Date.now() - started,
-      payload: { changes: generated.object.changes },
-    },
-  };
+  const failed = state.checks
+    .filter((check) => check.status === "failed")
+    .map((check) => check.name)
+    .join(", ");
+  throw new Error(
+    `Patch generation stopped because verification failed: ${failed}. Adjust the issue description and retry; no repository write occurred.`,
+  );
 }
 
 async function reviewerNode(
@@ -466,35 +582,20 @@ async function reviewerNode(
     };
   }
 
-  const generated = await generateObject({
-    model: model(),
-    schema: reviewSchema,
-    system:
-      "You are a skeptical code reviewer. Check correctness, security, failure recovery, tests, and scope. Report only concrete findings. Critical means the patch must not be approved.",
-    prompt: `${issueContext(state)}
-Acceptance criteria:
-${state.triage?.acceptanceCriteria.map((item) => `- ${item}`).join("\n")}
-
-Changes:
-${state.changes
-  .map((change) => `--- ${change.path} ---\n${change.patch}`)
-  .join("\n")
-  .slice(0, 48_000)}`,
-    temperature: 0.1,
-  });
-  const blockers = generated.object.findings.filter(
+  const findings = reviewGeneratedPatch(state);
+  const blockers = findings.filter(
     (finding) => finding.severity === "critical",
   ).length;
   return {
-    findings: generated.object.findings,
-    tokens: usageTotal(generated.usage),
+    findings,
+    tokens: 0,
     lastEvent: {
       nodeId: "reviewer",
       status: blockers ? "failed" : "completed",
       title: "Review complete",
-      message: `${blockers} blockers · ${generated.object.findings.length} total findings`,
+      message: `${blockers} blockers · ${findings.length} total findings`,
       durationMs: Date.now() - started,
-      payload: { findings: generated.object.findings },
+      payload: { findings },
     },
   };
 }

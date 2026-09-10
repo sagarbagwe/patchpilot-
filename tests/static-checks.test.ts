@@ -21,7 +21,7 @@ function change(overrides: Partial<FileChange> = {}): FileChange {
 test("safe generated changes pass deterministic checks", () => {
   const checks = runStaticChecks([change()]);
   assert.equal(checksPassed(checks), true);
-  assert.equal(checks.filter((item) => item.status === "passed").length, 6);
+  assert.equal(checks.filter((item) => item.status === "passed").length, 8);
 });
 
 test("unsafe paths are rejected", () => {
@@ -48,6 +48,21 @@ test("invalid JSON fails the JSON parser check", () => {
   ]);
   assert.equal(
     checks.find((item) => item.name === "JSON parse")?.status,
+    "failed",
+  );
+});
+
+test("duplicate paths and no-op patches are rejected", () => {
+  const checks = runStaticChecks([
+    change({ additions: 0, deletions: 0 }),
+    change({ additions: 0, deletions: 0 }),
+  ]);
+  assert.equal(
+    checks.find((item) => item.name === "Unique file paths")?.status,
+    "failed",
+  );
+  assert.equal(
+    checks.find((item) => item.name === "Material change")?.status,
     "failed",
   );
 });

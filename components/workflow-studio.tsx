@@ -117,6 +117,7 @@ type ActivityItem = {
 };
 
 type ResultTab = "changes" | "review" | "plan" | "metrics";
+const CLIENT_RUN_TIMEOUT_MS = 55_000;
 
 const emptyStatuses = (): Record<NodeId, NodeStatus> =>
   Object.fromEntries(NODE_IDS.map((id) => [id, "idle"])) as Record<
@@ -145,7 +146,12 @@ function formatClock(timestamp: string): string {
 
 function DiffLines({ patch }: { patch: string }) {
   return (
-    <div className="diffCode" role="region" aria-label="Code diff">
+    <div
+      className="diffCode"
+      role="region"
+      aria-label="Code diff"
+      tabIndex={0}
+    >
       {patch.split("\n").map((line, index) => {
         const type = line.startsWith("+")
           ? "addition"
@@ -185,7 +191,7 @@ function NodeCard({
         <strong>{meta.label}</strong>
         <span>{meta.description}</span>
       </div>
-      <span className="agentNodeStatus" aria-label={status}>
+      <span className="agentNodeStatus" role="img" aria-label={status}>
         {status === "idle" ? index + 1 : statusIcon(status)}
       </span>
     </div>
@@ -272,6 +278,16 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
 
     if (event.type === "run.failed") {
       setError(event.error);
+      setStatuses((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([nodeId, status]) => [
+            nodeId,
+            status === "running" || status === "retrying"
+              ? "failed"
+              : status,
+          ]),
+        ) as Record<NodeId, NodeStatus>,
+      );
       setRunning(false);
     }
   }
@@ -284,12 +300,19 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
     setStatuses(emptyStatuses());
     setApprovalState("idle");
     setApprovalMessage("");
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => abortController.abort(),
+      CLIENT_RUN_TIMEOUT_MS,
+    );
+    let receivedTerminalEvent = false;
 
     try {
       const response = await fetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repository, issueTitle, issueBody, mode }),
+        signal: abortController.signal,
       });
       if (!response.ok || !response.body) {
         const payload = (await response.json()) as { error?: string };
@@ -306,15 +329,48 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (line.trim()) handleEvent(JSON.parse(line) as WorkflowEvent);
+          if (line.trim()) {
+            const event = JSON.parse(line) as WorkflowEvent;
+            if (event.type === "run.completed" || event.type === "run.failed") {
+              receivedTerminalEvent = true;
+            }
+            handleEvent(event);
+          }
         }
       }
-      if (buffer.trim()) handleEvent(JSON.parse(buffer) as WorkflowEvent);
+      if (buffer.trim()) {
+        const event = JSON.parse(buffer) as WorkflowEvent;
+        if (event.type === "run.completed" || event.type === "run.failed") {
+          receivedTerminalEvent = true;
+        }
+        handleEvent(event);
+      }
+      if (!receivedTerminalEvent) {
+        throw new Error(
+          "The deployment ended the run before Gemini returned a patch. Retry once; if it repeats, confirm GEMINI_MODEL=gemini-2.5-flash in Vercel.",
+        );
+      }
     } catch (runError) {
       setError(
-        runError instanceof Error ? runError.message : "The workflow failed.",
+        runError instanceof DOMException && runError.name === "AbortError"
+          ? "The run exceeded 55 seconds and was stopped safely. Retry once; no repository write occurred."
+          : runError instanceof Error
+            ? runError.message
+            : "The workflow failed.",
+      );
+      setStatuses((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([nodeId, status]) => [
+            nodeId,
+            status === "running" || status === "retrying"
+              ? "failed"
+              : status,
+          ]),
+        ) as Record<NodeId, NodeStatus>,
       );
       setRunning(false);
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
 
@@ -478,7 +534,7 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
             </div>
             <a
               className="iconButton"
-              href="https://github.com"
+              href="https://github.com/sagarbagwe/patchpilot-"
               target="_blank"
               rel="noreferrer"
               aria-label="Open GitHub"
@@ -613,7 +669,13 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
                   {running ? "Streaming" : "Ready"}
                 </span>
               </div>
-              <div className="activityList" aria-live="polite">
+              <div
+                className="activityList"
+                role="region"
+                aria-label="Agent activity"
+                aria-live="polite"
+                tabIndex={0}
+              >
                 {activities.length === 0 ? (
                   <div className="emptyActivity">
                     <CircleDotDashed size={24} />

@@ -34,7 +34,11 @@ export default function HomePage() {
         <nav className="navLinks" aria-label="Main navigation">
           <a href="#workflow">Workflow</a>
           <a href="#architecture">Architecture</a>
-          <a href="https://github.com" target="_blank" rel="noreferrer">
+          <a
+            href="https://github.com/sagarbagwe/patchpilot-"
+            target="_blank"
+            rel="noreferrer"
+          >
             GitHub
           </a>
         </nav>
@@ -66,7 +70,7 @@ export default function HomePage() {
             </Link>
             <a
               className="button buttonSecondary"
-              href="https://github.com"
+              href="https://github.com/sagarbagwe/patchpilot-"
               target="_blank"
               rel="noreferrer"
             >
