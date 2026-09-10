@@ -102,7 +102,8 @@ const liveImplementationSchema = z.object({
     .max(5),
 });
 
-const GEMINI_TIMEOUT_MS = 42_000;
+const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_TIMEOUT_MS = 240_000;
 
 function model() {
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
@@ -110,7 +111,7 @@ function model() {
       "Gemini mode needs GOOGLE_GENERATIVE_AI_API_KEY. Configure it in Vercel Environment Variables or use Demo mode.",
     );
   }
-  return google(process.env.GEMINI_MODEL || "gemini-2.5-flash");
+  return google(GEMINI_MODEL);
 }
 
 function usageTotal(usage: unknown): number {
@@ -295,7 +296,7 @@ function geminiError(error: unknown): Error {
     /abort|timed? ?out|timeout/i.test(message)
   ) {
     return new Error(
-      "Gemini did not finish within 42 seconds, so PatchPilot stopped the run safely. Retry once or confirm GEMINI_MODEL=gemini-2.5-flash in Vercel.",
+      "Gemini 3.6 did not finish within four minutes, so PatchPilot stopped the run safely. Retry once with a smaller, more focused issue.",
     );
   }
   if (/429|quota|rate.?limit|resource_exhausted/i.test(message)) {
@@ -305,7 +306,21 @@ function geminiError(error: unknown): Error {
   }
   if (/404|model.*not found|not supported/i.test(message)) {
     return new Error(
-      "The configured Gemini model is unavailable. Set GEMINI_MODEL=gemini-2.5-flash in Vercel and redeploy.",
+      "Gemini 3.6 Flash is unavailable for this API key or region. Confirm the key can use gemini-3.6-flash in Google AI Studio.",
+    );
+  }
+  if (/network error|failed to fetch|fetch failed|econnreset|socket/i.test(message)) {
+    return new Error(
+      "The Gemini 3.6 connection ended unexpectedly. PatchPilot stopped safely before any repository write; retry once.",
+    );
+  }
+  if (
+    /no object generated|could not parse|did not match|incomplete|max.?output/i.test(
+      message,
+    )
+  ) {
+    return new Error(
+      "Gemini 3.6 could not return a complete structured patch. Reduce the issue scope or target fewer files, then retry.",
     );
   }
   return new Error(`Gemini could not generate the patch: ${message}`);
@@ -435,9 +450,17 @@ ${state.triage?.acceptanceCriteria.map((item) => `- ${item}`).join("\n")}
 Repository context:
 ${repoContext(state.repoFiles)}`,
       temperature: 0.1,
-      maxOutputTokens: 6500,
-      maxRetries: 0,
+      maxOutputTokens: 12_000,
+      maxRetries: 1,
       abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingLevel: "low",
+            includeThoughts: false,
+          },
+        },
+      },
     });
     const changes = materializeChanges(
       generated.object.changes,

@@ -36,7 +36,7 @@ const ENVIRONMENT_VARIABLES = [
   },
   {
     name: "GEMINI_MODEL",
-    description: "gemini-2.5-flash",
+    description: "gemini-3.6-flash",
     secret: false,
   },
   {
@@ -127,7 +127,7 @@ export function SettingsPage() {
               </div>
               <div className="settingRow">
                 <span>Model</span>
-                <strong>{health?.model || "gemini-2.5-flash"}</strong>
+                <strong>{health?.model || "gemini-3.6-flash"}</strong>
               </div>
               <div className="settingRow">
                 <span>API key</span>

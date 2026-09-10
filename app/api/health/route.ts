@@ -3,7 +3,7 @@ export function GET(): Response {
     status: "ok",
     service: "patchpilot",
     provider: "google-gemini",
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     liveMode: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY),
     githubAuthenticated: Boolean(process.env.GITHUB_TOKEN),
     githubWrites: process.env.PATCHPILOT_ENABLE_WRITES === "true",

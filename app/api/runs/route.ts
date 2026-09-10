@@ -13,7 +13,7 @@ import type {
 import { makeId, parseRepository } from "@/lib/utils";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const requestSchema = z.object({
   repository: z.string().min(3).max(180),
@@ -44,6 +44,13 @@ export async function POST(request: Request): Promise<Response> {
       const send = (event: WorkflowEvent) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
+      const heartbeat = setInterval(() => {
+        send({
+          type: "run.heartbeat",
+          runId,
+          timestamp: now(),
+        });
+      }, 10_000);
       const sendStarted = (nodeId: NodeId) => {
         send({
           type: "node.started",
@@ -111,6 +118,7 @@ export async function POST(request: Request): Promise<Response> {
             error instanceof Error ? error.message : "The workflow failed.",
         });
       } finally {
+        clearInterval(heartbeat);
         controller.close();
       }
     },

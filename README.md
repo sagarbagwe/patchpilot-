@@ -130,8 +130,9 @@ flowchart LR
    separators.
 4. Preflight checks include secret patterns, JSON parsing, delimiter balance,
    patch size, and path safety.
-5. Live inference has a 42-second server timeout, no hidden retries, and a
-   55-second browser watchdog; failures stop before any repository write.
+5. Live inference uses low-thinking Gemini 3.6 Flash, a four-minute model
+   timeout, one bounded network retry, stream heartbeats, and a browser
+   watchdog; failures stop before any repository write.
 6. GitHub writes require an explicit human action.
 7. Server writes additionally require
    `PATCHPILOT_ENABLE_WRITES=true`.
@@ -169,7 +170,7 @@ For local development, add this to `.env.local`:
 
 ```bash
 GOOGLE_GENERATIVE_AI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.6-flash
 GITHUB_TOKEN=... # optional for public repositories
 ```
 
@@ -203,7 +204,7 @@ Never expose the GitHub token through a `NEXT_PUBLIC_` variable.
    | Name | Value |
    | --- | --- |
    | `GOOGLE_GENERATIVE_AI_API_KEY` | Your Google AI Studio key |
-   | `GEMINI_MODEL` | `gemini-2.5-flash` |
+   | `GEMINI_MODEL` | `gemini-3.6-flash` |
    | `PATCHPILOT_ENABLE_WRITES` | `false` |
 
 5. Select Production, Preview, and Development for each variable.

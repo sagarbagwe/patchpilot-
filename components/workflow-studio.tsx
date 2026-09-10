@@ -117,7 +117,7 @@ type ActivityItem = {
 };
 
 type ResultTab = "changes" | "review" | "plan" | "metrics";
-const CLIENT_RUN_TIMEOUT_MS = 55_000;
+const CLIENT_RUN_TIMEOUT_MS = 280_000;
 
 const emptyStatuses = (): Record<NodeId, NodeStatus> =>
   Object.fromEntries(NODE_IDS.map((id) => [id, "idle"])) as Record<
@@ -347,13 +347,13 @@ export function WorkflowStudio({ autoRun = false }: { autoRun?: boolean }) {
       }
       if (!receivedTerminalEvent) {
         throw new Error(
-          "The deployment ended the run before Gemini returned a patch. Retry once; if it repeats, confirm GEMINI_MODEL=gemini-2.5-flash in Vercel.",
+          "The deployment ended the run before Gemini 3.6 returned a patch. Retry once; no repository write occurred.",
         );
       }
     } catch (runError) {
       setError(
         runError instanceof DOMException && runError.name === "AbortError"
-          ? "The run exceeded 55 seconds and was stopped safely. Retry once; no repository write occurred."
+          ? "The run exceeded four minutes and was stopped safely. Retry with a smaller issue; no repository write occurred."
           : runError instanceof Error
             ? runError.message
             : "The workflow failed.",
