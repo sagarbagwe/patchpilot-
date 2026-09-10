@@ -111,6 +111,11 @@ export type WorkflowEvent =
       request: RunRequest;
     }
   | {
+      type: "run.heartbeat";
+      runId: string;
+      timestamp: string;
+    }
+  | {
       type: "node.started" | "node.completed" | "node.retry";
       runId: string;
       timestamp: string;
