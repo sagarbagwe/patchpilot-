@@ -1,0 +1,36 @@
+{
+  "name": "patchpilot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An agentic GitHub issue-to-pull-request engineering workspace.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "eval": "tsx scripts/run-evals.ts",
+    "check": "npm run typecheck && npm run test && npm run eval && npm run build"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "4.0.67",
+    "@langchain/langgraph": "1.4.14",
+    "@octokit/rest": "22.0.1",
+    "ai": "7.0.97",
+    "lucide-react": "0.544.0",
+    "next": "16.3.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  }
+}

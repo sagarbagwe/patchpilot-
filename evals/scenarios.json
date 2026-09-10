@@ -1,0 +1,122 @@
+[
+  {
+    "id": "webhook-idempotency",
+    "category": "reliability",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": false,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 5120
+  },
+  {
+    "id": "pagination-off-by-one",
+    "category": "correctness",
+    "criteriaExpected": 3,
+    "criteriaSatisfied": 3,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 4310
+  },
+  {
+    "id": "rate-limit-backoff",
+    "category": "reliability",
+    "criteriaExpected": 5,
+    "criteriaSatisfied": 5,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 5980
+  },
+  {
+    "id": "authorization-scope",
+    "category": "security",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": false,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 6840
+  },
+  {
+    "id": "cache-invalidation",
+    "category": "correctness",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 3,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 4760
+  },
+  {
+    "id": "form-validation",
+    "category": "frontend",
+    "criteriaExpected": 3,
+    "criteriaSatisfied": 3,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 3890
+  },
+  {
+    "id": "database-timeout",
+    "category": "reliability",
+    "criteriaExpected": 5,
+    "criteriaSatisfied": 5,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 6210
+  },
+  {
+    "id": "pii-log-redaction",
+    "category": "security",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 5440
+  },
+  {
+    "id": "empty-state-accessibility",
+    "category": "frontend",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 4170
+  },
+  {
+    "id": "race-condition",
+    "category": "correctness",
+    "criteriaExpected": 5,
+    "criteriaSatisfied": 5,
+    "firstAttemptPassed": false,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 7310
+  },
+  {
+    "id": "api-schema-change",
+    "category": "maintenance",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 4910
+  },
+  {
+    "id": "retry-budget",
+    "category": "reliability",
+    "criteriaExpected": 4,
+    "criteriaSatisfied": 4,
+    "firstAttemptPassed": true,
+    "repairPassed": true,
+    "approvalRequired": true,
+    "latencyMs": 5690
+  }
+]
